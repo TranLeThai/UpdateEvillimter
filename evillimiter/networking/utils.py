@@ -2,7 +2,7 @@ import re
 import netifaces
 import logging
 from typing import Optional
-from scapy.all import ARP, sr1  # pylint: disable=no-name-in-module
+from scapy.all import ARP, sr1, Ether  # Thêm Ether
 
 import evillimiter.console.shell as shell
 from evillimiter.common.globals import BIN_TC, BIN_IPTABLES, BIN_SYSCTL, IP_FORWARD_LOC
@@ -28,10 +28,11 @@ def get_default_netmask(interface: str) -> Optional[str]:
     return None
 
 def get_mac_by_ip(interface: str, address: str) -> Optional[str]:
-    packet = ARP(op=1, pdst=address)
+    # Fix warning bằng cách thêm Ether layer với dst broadcast
+    packet = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(op=1, pdst=address)
     response = sr1(packet, timeout=3, verbose=0, iface=interface)
     if response is not None:
-        return response.hwsrc
+        return response[ARP].hwsrc  # Lấy từ ARP layer
     return None
 
 def exists_interface(interface: str) -> bool:
@@ -48,62 +49,66 @@ def flush_network_settings(interface: str) -> None:
     shell.execute_suppressed(f'{BIN_IPTABLES} -X')
 
     shell.execute_suppressed(f'{BIN_TC} qdisc del dev {interface} root')
-
-def validate_ip_address(ip: str) -> bool:
-    return re.match(r'^(\d{1,3}\.){3}(\d{1,3})$', ip) is not None
-
-def validate_mac_address(mac: str) -> bool:
-    return re.match(r'^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$', mac) is not None
-
-def create_qdisc_root(interface: str) -> bool:
-    return shell.execute_suppressed(f'{BIN_TC} qdisc add dev {interface} root handle 1:0 htb') == 0
-
-def delete_qdisc_root(interface: str) -> bool:
-    return shell.execute_suppressed(f'{BIN_TC} qdisc del dev {interface} root handle 1:0 htb') == 0
+    shell.execute_suppressed(f'{BIN_TC} qdisc add dev {interface} root handle 1:0 htb default 1')
+    shell.execute_suppressed(f'{BIN_TC} class add dev {interface} parent 1:0 classid 1:1 htb rate 1gbit')
 
 def enable_ip_forwarding() -> bool:
-    return shell.execute_suppressed(f'{BIN_SYSCTL} -w {IP_FORWARD_LOC}=1') == 0
+    return shell.execute(f'{BIN_SYSCTL} -w {IP_FORWARD_LOC}=1') == 0
 
 def disable_ip_forwarding() -> bool:
-    return shell.execute_suppressed(f'{BIN_SYSCTL} -w {IP_FORWARD_LOC}=0') == 0
+    return shell.execute(f'{BIN_SYSCTL} -w {IP_FORWARD_LOC}=0') == 0
+
+def create_qdisc_root(interface: str) -> bool:
+    return shell.execute_suppressed(f'{BIN_TC} qdisc add dev {interface} root handle 1:0 htb default 1') == 0
+
+def delete_qdisc_root(interface: str) -> bool:
+    return shell.execute_suppressed(f'{BIN_TC} qdisc del dev {interface} root') == 0
+
+def validate_mac_address(mac: str) -> bool:
+    return bool(re.match(r'^([0-9a-f]{2}[:-]){5}([0-9a-f]{2})$', mac.lower()))
 
 class ValueConverter:
     @staticmethod
-    def byte_to_bit(v):
-        return v * 8
+    def byte_to_bit(value: int) -> int:
+        return value * 8
+
+    @staticmethod
+    def bit_to_byte(value: int) -> int:
+        return value // 8
 
 class BitRate:
-    def __init__(self, rate=0):
-        self.rate = int(rate)
+    def __init__(self, value=0):
+        self.value = int(value)
 
     def __repr__(self):
         return self.__str__()
 
     def __str__(self):
-        r = float(self.rate)
+        v = float(self.value)
         for unit in ['bit', 'kbit', 'mbit', 'gbit']:
-            if r < 1000:
-                return f"{int(r)}{unit}"
-            r /= 1000
-        return f"{int(r)}tbit" # Fallback
+            if v < 1000:
+                return f"{int(v)}{unit}"
+            v /= 1000
+        return f"{int(v)}tbit"
 
-    def __mul__(self, other):
-        val = other.rate if isinstance(other, BitRate) else other
-        return BitRate(self.rate * val)
+    def __int__(self): return self.value
+    
+    def __add__(self, other): return BitRate(self.value + (other.value if isinstance(other, BitRate) else other))
+    def __sub__(self, other): return BitRate(self.value - (other.value if isinstance(other, BitRate) else other))
+    def __mul__(self, other): return BitRate(self.value * (other.value if isinstance(other, BitRate) else other))
+    def __ge__(self, other): return self.value >= (other.value if isinstance(other, BitRate) else other)
 
     @classmethod
-    def from_rate_string(cls, rate_string: str):
-        return cls(cls._bit_value(rate_string))
+    def from_bitrate_string(cls, bitrate_string: str):
+        return cls(cls._bitrate_value(bitrate_string))
 
     @staticmethod
-    def _bit_value(rate_string: str) -> int:
-        match = re.match(r"^(\d+)([a-zA-Z]+)$", rate_string)
+    def _bitrate_value(bitrate_string: str) -> int:
+        match = re.match(r"^(\d+)([a-zA-Z]+)?$", bitrate_string)
         if not match:
-             # Try simple digit only
-            if rate_string.isdigit(): return int(rate_string)
             raise ValueError('Invalid bitrate format')
         
-        number, unit = int(match.group(1)), match.group(2).lower()
+        number, unit = int(match.group(1)), match.group(2).lower() if match.group(2) else 'bit'
         units = {'bit': 1, 'kbit': 1000, 'mbit': 1000**2, 'gbit': 1000**3}
         
         if unit in units:

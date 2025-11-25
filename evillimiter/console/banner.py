@@ -8,7 +8,7 @@ _MAIN_BANNER = f"""{IO.Fore.LIGHTRED_EX}
 ██╔══╝  ╚██╗ ██╔╝██║██║       ██║     ██║██║╚██╔╝██║██║   ██║   ██╔══╝  ██╔══██╗
 ███████╗ ╚████╔╝ ██║███████╗  ███████╗██║██║ ╚═╝ ██║██║   ██║   ███████╗██║  ██║
 ╚══════╝  ╚═══╝  ╚═╝╚══════╝  ╚══════╝╚═╝╚═╝     ╚═╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
-                {IO.Style.RESET_ALL + IO.Style.BRIGHT}by bitbrute  ~  limit devices on your network :3
+                {IO.Style.RESET_ALL + IO.Style.BRIGHT} update version
                                     v[_V_]
 """
 

@@ -154,3 +154,27 @@ class Limiter:
         if direction & Direction.INCOMING:
             shell.execute_suppressed(f'{BIN_IPTABLES} -t mangle -D PREROUTING -d {host.ip} -j MARK --set-mark {id_}')
             shell.execute_suppressed(f'{BIN_IPTABLES} -t filter -D FORWARD -d {host.ip} -j DROP')
+
+    def block_host_completely(self, host: Host) -> None:
+    # Chặn chết internet hoàn toàn bằng blackhole route
+        shell.execute_suppressed(f'ip route add blackhole {host.ip}', root=True)
+        host.blocked = True
+        IO.ok(f"{host.ip} đã bị chặn hoàn toàn internet (blackhole)")
+
+    def unblock_host_completely(self, host: Host) -> None:
+        """Gỡ chặn blackhole"""
+        shell.execute_suppressed(f'ip route del blackhole {host.ip}', root=True)
+        host.blocked = False
+        IO.ok(f"{host.ip} đã được mở lại internet")
+
+    def block_social(self, host: Host) -> None:
+        cmds = [
+            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -d 8.8.8.8 -j DROP',       # Block Google DNS
+            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -d 1.1.1.1 -j DROP',       # Block Cloudflare DNS
+            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -p tcp --dport 443 -j DROP', # Block HTTPS
+            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -p tcp --dport 80 -j DROP',  # Block HTTP
+            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -p udp --dport 443 -j DROP', # Block QUIC
+        ]
+        for cmd in cmds:
+            shell.execute_suppressed(cmd)
+        IO.ok(f"{host.ip} đã bị chặn web + app (YouTube, TikTok, FB...)")
