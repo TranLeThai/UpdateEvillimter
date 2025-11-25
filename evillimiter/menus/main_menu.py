@@ -80,6 +80,23 @@ class MainMenu(CommandMenu):
         self.parser.add_subparser('quit', quit_handler)
         self.parser.add_subparser('exit', quit_handler)
 
+                # ================== LỆNH MỚI SIÊU MẠNH ĐƯỢC THÊM VÀO ĐÂY ==================
+        # Chặn chết hẳn internet bằng blackhole route
+        blockall_parser = self.parser.add_subparser('blockall', self._blockall_handler)
+        blockall_parser.add_parameter('id')
+
+        unblockall_parser = self.parser.add_subparser('unblockall', self._unblockall_handler)
+        unblockall_parser.add_parameter('id')
+
+        # Chỉ chặn web + app phổ biến
+        blockweb_parser = self.parser.add_subparser('blockweb', self._blockweb_handler)
+        blockweb_parser.add_parameter('id')
+
+        # Chặn game online
+        blockgame_parser = self.parser.add_subparser('blockgame', self._blockgame_handler)
+        blockgame_parser.add_parameter('id')
+        # =====================================================================
+
         # --- Khởi tạo các thành phần mạng ---
         self.version = version
         self.interface = interface
@@ -467,3 +484,38 @@ class MainMenu(CommandMenu):
     def _analyze_handler(self, args):
         # Logic analyze giữ nguyên, chỉ cần update cú pháp lock và type hint
         pass
+
+        # ====================== 4 HÀM MỚI – CHẶN SIÊU MẠNH ======================
+    def _blockall_handler(self, args):
+        targets = self._get_hosts_by_ids(args.id)
+        if not targets: return
+        for host in targets:
+            if not host.spoofed:
+                self.arp_spoofer.add(host)
+            self.limiter.blockall(host)
+            IO.ok(f'{host.ip} → Internet bị chặn HOÀN TOÀN (blackhole)')
+
+    def _unblockall_handler(self, args):
+        targets = self._get_hosts_by_ids(args.id)
+        if not targets: return
+        for host in targets:
+            self.limiter.unblockall(host)
+            IO.ok(f'{host.ip} → Đã mở lại Internet hoàn toàn')
+
+    def _blockweb_handler(self, args):
+        targets = self._get_hosts_by_ids(args.id)
+        if not targets: return
+        for host in targets:
+            if not host.spoofed:
+                self.arp_spoofer.add(host)
+            self.limiter.blockweb(host)
+            IO.ok(f'{host.ip} → Chặn Web + App (YouTube, TikTok, FB, Netflix...)')
+
+    def _blockgame_handler(self, args):
+        targets = self._get_hosts_by_ids(args.id)
+        if not targets: return
+        for host in targets:
+            if not host.spoofed:
+                self.arp_spoofer.add(host)
+            self.limiter.blockgame(host)
+            IO.ok(f'{host.ip} → Chặn toàn bộ Game online + Steam + Garena')
