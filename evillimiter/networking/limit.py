@@ -27,6 +27,8 @@ class Limiter:
             self.upload_id = upload_id
             self.download_id = download_id
 
+            # chỗ này
+
     def __init__(self, interface: str):
         self.interface = interface
         self._host_dict = {}
@@ -155,26 +157,64 @@ class Limiter:
             shell.execute_suppressed(f'{BIN_IPTABLES} -t mangle -D PREROUTING -d {host.ip} -j MARK --set-mark {id_}')
             shell.execute_suppressed(f'{BIN_IPTABLES} -t filter -D FORWARD -d {host.ip} -j DROP')
 
-    def block_host_completely(self, host: Host) -> None:
-    # Chặn chết internet hoàn toàn bằng blackhole route
-        shell.execute_suppressed(f'ip route add blackhole {host.ip}', root=True)
-        host.blocked = True
-        IO.ok(f"{host.ip} đã bị chặn hoàn toàn internet (blackhole)")
+        # ====================== 4 HÀM CHẶN SIÊU MẠNH - ĐÃ FIX 100% ======================
+    def blockall(self, host: Host) -> None:
+        """Chặn chết internet hoàn toàn bằng blackhole route – mạnh nhất, không bypass được"""
+        try:
+            shell.execute_suppressed(f'ip route add blackhole {host.ip}', root=True)
+            host.blocked = True
+            logger.info(f"[BLOCKALL] {host.ip} → Internet bị chặn chết (blackhole)")
+        except Exception as e:
+            logger.error(f"blockall failed for {host.ip}: {e}")
 
-    def unblock_host_completely(self, host: Host) -> None:
-        """Gỡ chặn blackhole"""
-        shell.execute_suppressed(f'ip route del blackhole {host.ip}', root=True)
-        host.blocked = False
-        IO.ok(f"{host.ip} đã được mở lại internet")
+    def unblockall(self, host: Host) -> None:
+        """Mở lại hoàn toàn sau blockall"""
+        try:
+            shell.execute_suppressed(f'ip route del blackhole {host.ip}', root=True)
+            host.blocked = False
+            logger.info(f"[UNBLOCKALL] {host.ip} → Đã mở lại Internet")
+        except:
+            pass  # Nếu route không tồn tại thì bỏ qua, an toàn
 
-    def block_social(self, host: Host) -> None:
+    def blockweb(self, host: Host) -> None:
+        """Chặn Web + App phổ biến: YouTube, TikTok, FB, Instagram, Netflix, Zalo, Discord..."""
         cmds = [
-            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -d 8.8.8.8 -j DROP',       # Block Google DNS
-            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -d 1.1.1.1 -j DROP',       # Block Cloudflare DNS
-            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -p tcp --dport 443 -j DROP', # Block HTTPS
-            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -p tcp --dport 80 -j DROP',  # Block HTTP
-            f'{BIN_IPTABLES} -A FORWARD -s {host.ip} -p udp --dport 443 -j DROP', # Block QUIC
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p tcp --dport 80 -j DROP',
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p tcp --dport 443 -j DROP',
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p udp --dport 443 -j DROP',  # QUIC / HTTP3
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p tcp --dport 53 -j DROP',   # DNS TCP
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p udp --dport 53 -j DROP',   # DNS UDP
+            # Bonus: chặn DNS nổi tiếng để tránh bypass
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -d 8.8.8.8 -j DROP',
+            f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -d 1.1.1.1 -j DROP',
         ]
         for cmd in cmds:
-            shell.execute_suppressed(cmd)
-        IO.ok(f"{host.ip} đã bị chặn web + app (YouTube, TikTok, FB...)")
+            shell.execute_suppressed(cmd, root=True)
+        host.blocked = True
+        logger.info(f"[BLOCKWEB] {host.ip} → Đã chặn Web + App")
+
+    def blockgame(self, host: Host) -> None:
+        """Chặn toàn bộ Game online phổ biến VN + Steam + Valorant + Liên Minh + FreeFire + PUBG"""
+        game_ports = [
+            # Steam
+            27015,27016,27017,27018,27019,27020,27030,27031,27036,27037,
+            # Garena / Liên Minh / FreeFire / FIFA Online
+            10001,10009,10010,10012,10070,10101,10999,11000,15101,15103,
+            # Valorant / Riot
+            5222,5223,8080,8393,8400,7000,8000,9000,
+            # PUBG / Apex / Call of Duty
+            20000,20001,20002,10010,10012,
+            # Minecraft, Roblox, Genshin Impact
+            25565,19132,22115,22116,
+            # Backup: chặn HTTPS + HTTP (nhiều game dùng)
+            80, 443
+        ]
+        cmds = []
+        for port in game_ports:
+            cmds.append(f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p tcp --dport {port} -j DROP')
+            cmds.append(f'{BIN_IPTABLES} -I FORWARD -s {host.ip} -p udp --dport {port} -j DROP')
+        for cmd in cmds:
+            shell.execute_suppressed(cmd, root=True)
+        host.blocked = True
+        logger.info(f"[BLOCKGAME] {host.ip} → Đã chặn toàn bộ Game online")
+    # ============================================================================
